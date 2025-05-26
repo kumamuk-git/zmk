@@ -1,11 +1,11 @@
 manifest:
   remotes:
     - name: zephyrproject-rtos
-      "url-base": https://github.com/zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
     - name: zmkfirmware
-      "url-base": https://github.com/zmkfirmware
+      url-base: https://github.com/zmkfirmware
     - name: kumamuk-git
-      "url-base": https://github.com/kumamuk-git
+      url-base: https://github.com/kumamuk-git
   projects:
     - name: zephyr
       remote: zmkfirmware
