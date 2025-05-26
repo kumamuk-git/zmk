@@ -15,6 +15,7 @@ LOG_MODULE_DECLARE(zmk_studio, CONFIG_ZMK_STUDIO_LOG_LEVEL);
 #include <zmk/keymap.h>
 #include <zmk/studio/rpc.h>
 #include <zmk/physical_layouts.h>
+#include <zmk/events/layer_state_changed.h>
 
 #include <pb_encode.h>
 
@@ -524,6 +525,43 @@ zmk_studio_Response set_layer_props(const zmk_studio_Request *req) {
     return KEYMAP_RESPONSE(set_layer_props, resp);
 }
 
+zmk_studio_Response set_active_layer(const zmk_studio_Request *req) {
+    LOG_DBG("");
+    const zmk_keymap_SetActiveLayerRequest *set_req =
+        &req->subsystem.keymap.request_type.set_active_layer;
+
+    zmk_keymap_SetActiveLayerResponse resp = zmk_keymap_SetActiveLayerResponse_init_zero;
+
+    // Convert layer index to layer ID
+    zmk_keymap_layer_id_t layer_id = zmk_keymap_layer_index_to_id(set_req->layer);
+    
+    if (layer_id == ZMK_KEYMAP_LAYER_ID_INVAL) {
+        resp.which_result = zmk_keymap_SetActiveLayerResponse_err_tag;
+        resp.result.err = zmk_keymap_SetActiveLayerErrorCode_SET_ACTIVE_LAYER_ERR_INVALID_LAYER;
+        return KEYMAP_RESPONSE(set_active_layer, resp);
+    }
+
+    // Check if layer index is within valid range
+    if (set_req->layer >= ZMK_KEYMAP_LAYERS_LEN) {
+        resp.which_result = zmk_keymap_SetActiveLayerResponse_err_tag;
+        resp.result.err = zmk_keymap_SetActiveLayerErrorCode_SET_ACTIVE_LAYER_ERR_INVALID_LAYER;
+        return KEYMAP_RESPONSE(set_active_layer, resp);
+    }
+
+    int ret = zmk_keymap_layer_to(layer_id);
+
+    if (ret >= 0) {
+        resp.which_result = zmk_keymap_SetActiveLayerResponse_ok_tag;
+        resp.result.ok = true;
+    } else {
+        LOG_WRN("Failed to set active layer: %d", ret);
+        resp.which_result = zmk_keymap_SetActiveLayerResponse_err_tag;
+        resp.result.err = zmk_keymap_SetActiveLayerErrorCode_SET_ACTIVE_LAYER_ERR_GENERIC;
+    }
+
+    return KEYMAP_RESPONSE(set_active_layer, resp);
+}
+
 ZMK_RPC_SUBSYSTEM_HANDLER(keymap, get_keymap, ZMK_STUDIO_RPC_HANDLER_SECURED);
 ZMK_RPC_SUBSYSTEM_HANDLER(keymap, set_layer_binding, ZMK_STUDIO_RPC_HANDLER_SECURED);
 ZMK_RPC_SUBSYSTEM_HANDLER(keymap, check_unsaved_changes, ZMK_STUDIO_RPC_HANDLER_SECURED);
@@ -536,7 +574,23 @@ ZMK_RPC_SUBSYSTEM_HANDLER(keymap, add_layer, ZMK_STUDIO_RPC_HANDLER_SECURED);
 ZMK_RPC_SUBSYSTEM_HANDLER(keymap, remove_layer, ZMK_STUDIO_RPC_HANDLER_SECURED);
 ZMK_RPC_SUBSYSTEM_HANDLER(keymap, restore_layer, ZMK_STUDIO_RPC_HANDLER_SECURED);
 ZMK_RPC_SUBSYSTEM_HANDLER(keymap, set_layer_props, ZMK_STUDIO_RPC_HANDLER_SECURED);
+ZMK_RPC_SUBSYSTEM_HANDLER(keymap, set_active_layer, ZMK_STUDIO_RPC_HANDLER_SECURED);
 
-static int event_mapper(const zmk_event_t *eh, zmk_studio_Notification *n) { return 0; }
+static int event_mapper(const zmk_event_t *eh, zmk_studio_Notification *n) {
+    if (as_zmk_layer_state_changed(eh)) {
+        const struct zmk_layer_state_changed *layer_ev = as_zmk_layer_state_changed(eh);
+        
+        // Only notify when a layer becomes active (state = true)
+        if (layer_ev->state) {
+            n->which_subsystem = zmk_studio_Notification_keymap_tag;
+            n->subsystem.keymap.which_notification_type = 
+                zmk_keymap_Notification_active_layer_changed_tag;
+            n->subsystem.keymap.notification_type.active_layer_changed.layer = layer_ev->layer;
+            return 0;
+        }
+    }
+    
+    return -ENOTSUP;
+}
 
 ZMK_RPC_EVENT_MAPPER(keymap, event_mapper);
